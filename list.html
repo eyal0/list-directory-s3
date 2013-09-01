@@ -1,0 +1,288 @@
+<html>
+  <head>
+    <!--
+        Amazon S3 Bucket listing.
+
+        This program is free software: you can redistribute it and/or modify
+        it under the terms of the GNU General Public License as published by
+        the Free Software Foundation, either version 3 of the License, or
+        (at your option) any later version.
+
+        This program is distributed in the hope that it will be useful,
+        but WITHOUT ANY WARRANTY; without even the implied warranty of
+        MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        GNU General Public License for more details.
+
+        You should have received a copy of the GNU General Public License
+        along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+    -->
+    <title>Bucket listing</title>
+    <script>
+      String.prototype.repeat = function(num) {
+        return new Array( num + 1 ).join( this );
+      }
+
+      function getSpace(s,l){
+        if(l-s.length > 0) {
+          return " ".repeat(l-s.length);
+        } else {
+          return "";
+        }
+      }
+
+      function getParameterByName(name) {
+        name = name.replace(/[\[]/, "\\\[").replace(/[\]]/, "\\\]");
+        var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
+        results = regex.exec(location.search);
+        return results == null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+      }
+
+      function createRequestObject(){
+        if (navigator.appName == "Microsoft Internet Explorer") {
+          return new ActiveXObject("Microsoft.XMLHTTP");
+        } else {
+          return new XMLHttpRequest();
+        }
+      }
+
+      function getPathnamePrefix() {
+        var prefix = location.pathname.replace(/[^\/]*$/,"");  // All but the filename, with a trailing slash.
+        prefix = prefix.replace(/^\/*/, ""); // Remove leading slash.
+        return prefix;
+      }
+
+      function getFullPrefix() {
+        var prefix = getPathnamePrefix();
+        var prefix2 = getParameterByName("prefix")||"";
+        if (prefix2) {
+          prefix += prefix2;
+        }
+        return prefix;
+      }
+
+      var http = createRequestObject();
+      function getList() {
+        http.open('get', location.protocol + '//' + location.hostname + '?prefix=' + encodeURIComponent(getFullPrefix()) + '&delimiter=/');
+        http.onreadystatechange = handleList;
+        http.send(null);
+      }
+
+      RegExp.escape = function(str) {
+        var specials = /[.*+?|()\[\]{}\\$^]/g;
+        return str.replace(specials, "\\$&");
+      }
+
+     function eliminateDuplicates(arr, getKey) {
+       var i;
+       var len=arr.length;
+       var out=[];
+       var obj={};
+
+       if(!getKey) {
+         getKey = function(x){return(x);};
+       }
+       for (i=0; i<len; i++) {
+         var key = getKey(arr[i]);
+         if(!(key in obj)) {
+           obj[key]=0;
+           out.push(i);
+         }
+       }
+       return out;
+     }
+
+     function updateQueryStringParameter(uri, key, value) {
+       var re = new RegExp("([?|&])" + key + "=.*?(&|#|$)", "i");
+       if (uri.match(re)) {
+         return uri.replace(re, '$1' + key + "=" + value + '$2');
+       } else {
+         var hash =  '';
+         var separator = uri.indexOf('?') !== -1 ? "&" : "?";
+         if( uri.indexOf('#') !== -1 ){
+           hash = uri.replace(/.*#/, '#');
+           uri = uri.replace(/#.*/, '');
+         }
+         return uri + separator + key + "=" + value + hash;
+       }
+     }
+
+     function handleList(){
+       /* Make sure that the transaction has finished. The XMLHttpRequest object
+       has a property called readyState with several states:
+       0: Uninitialized
+       1: Loading
+       2: Loaded
+       3: Interactive
+       4: Finished */
+       if(http.readyState == 4){ //Finished loading the response
+         /* We have got the response from the server-side script,
+         let's see just what it was. using the responseText property of
+         the XMLHttpRequest object. */
+         var response = http.responseXML;
+         var filex = response.getElementsByTagName('Contents');
+         var fileList = [];
+         var allKeys = {};
+         var fullPrefix_re = new RegExp("^" + RegExp.escape(getFullPrefix()),"");
+         var pathnamePrefix_re = new RegExp("^" + RegExp.escape(getPathnamePrefix()),"");
+         for (i=0; i < filex.length; i++) {
+           var key = filex[i].getElementsByTagName('Key')[0].firstChild.data;
+           allKeys[key] = 1;
+           var name = key;
+           //only if this file/folder is in the current directory
+           if(name.match(fullPrefix_re)) {
+             var size = filex[i].getElementsByTagName('Size')[0].firstChild.data;
+             lastmod = filex[i].getElementsByTagName('LastModified')[0].firstChild.data;
+             link = '<a href="' + name.replace(pathnamePrefix_re,"") + '">' + name.replace(fullPrefix_re,"")+"</a>";
+             if(name.replace(fullPrefix_re, "").length == 0) {
+               continue;
+             }
+             var fileData = {};
+             fileData.name = name.replace(fullPrefix_re,"");
+             fileData.size = parseInt(size);
+             fileData.lastmod = lastmod;
+             fileData.link = link;
+             fileData.key = key;
+             fileData.isFile = true;
+             fileList.push(fileData);
+           }
+         }
+         window.history.replaceState({}, '', updateQueryStringParameter(location.href, "prefix", getParameterByName("prefix") || ""));
+         fileList.push({name: ".",
+                        size: null,
+                        lastmod: "",
+                        link: '<A HREF="' + location.protocol + '//' + location.host + location.pathname + location.search + "\">.</A>",
+                        key: ".",
+                        isFile: false
+                       });
+         fileList.push({name: "..",
+                        size: null,
+                        lastmod: "",
+                        link: '<A HREF="' + updateQueryStringParameter(location.href, "prefix", getParameterByName("prefix").replace(/[^\/]*\/$/,"")) + "\">..</A>",
+                        key: "..",
+                        isFile: false
+                       });
+         var dirx = response.getElementsByTagName('CommonPrefixes');
+         for (var i=0; i < dirx.length; i++) {
+           var key = dirx[i].getElementsByTagName('Prefix')[0].firstChild.data;
+           allKeys[key] = 1;
+           var name = key;
+           var fileData = {};
+           fileData.name = name.replace(fullPrefix_re,"");
+           fileData.size = null;
+           fileData.lastmod = "";
+           fileData.link = "<A HREF=\"" + updateQueryStringParameter(location.href, "prefix", getParameterByName("prefix") + name.replace(fullPrefix_re,"")) + "\">" + name.replace(fullPrefix_re,"") + "</A>";
+           fileData.key = key;
+           fileData.isFile = false;
+           fileList.push(fileData);
+         }
+         //fileList = eliminateDuplicates(fileList, function(x) {return x[0];});
+         fileList.sort(getSort());
+         //document.write(getSort());
+         var res = '';
+         for(i=0; i<fileList.length; i++){ //length is the same as count($array)
+           fileData = fileList[i];
+           var name = fileData.name;
+           var size = fileData.size;
+           var lastmod = fileData.lastmod;
+           var link = fileData.link;
+           var key = fileData.key;
+           res = res +  getSpace((size || "").toString(),15) + (size || "").toString() + " B ";
+           res = res + " "+ getSpace(lastmod,25) + lastmod + " ";
+           res = res + " "+ link + getSpace(name,50) + " ";
+           res = res + "<BR>";
+         }
+         document.getElementById('bucket_list').innerHTML = "<PRE>"+getLink()+"<BR>"+res+"</PRE>";
+       }
+     }
+
+     function compareBy(a, b, params) {
+       var currentParam = params[0];
+       var direction = 1;
+       if (currentParam.slice(0,1) == "-") {
+         direction = -1;
+         currentParam = currentParam.slice(1);
+       }
+       if(a[currentParam] > b[currentParam])
+         return direction;
+       if(a[currentParam] < b[currentParam])
+         return -direction;
+       if(params.length > 1) {
+         return compareBy(a, b, params.slice(1));
+       }
+       return 0;
+     }
+
+     function getSort(){
+       var s = getParameterByName("sort");
+       return function(a,b) {
+         return compareBy(a,b, s.split(","));
+       }
+     }
+
+     function getLink(){
+       return "             "+getLinkSize() + "   " + getLinkLastmod() + "             " + getLinkName() + "   " ;
+     }
+
+     function getNextSortDir(sortText) {
+       var sortTextAscending = getParameterByName("sort").split(",").map(function (x) { return x.replace(/^-/,"");}).join(",");
+       if (sortText == sortTextAscending) {
+         sortParams = getParameterByName("sort").split(",");
+         for (var i = sortParams.length-1; i >= 0 ; i--) {
+           if (sortParams[i].slice(0,1) != "-") {
+             sortParams[i] = "-" + sortParams[i];
+             break;
+           } else {
+             sortParams[i] = sortParams[i].slice(1);
+           }
+         }
+         return sortParams.join(",");
+       } else {
+         return sortText;
+       }
+     }
+
+     function getLinkHref(sortText) {
+       return updateQueryStringParameter(location.href, "sort", getNextSortDir(sortText));
+     }
+
+     function getLinkHeading(sortText, linkText) {
+       var arrow = "";
+       if (getParameterByName("sort")) {
+         var sortTextAscending = getParameterByName("sort").split(",").map(function (x) { return x.replace(/^-/,"");}).join(",");
+         if (sortText == sortTextAscending) {
+           arrow = getParameterByName("sort").split(",").map(function (x) {
+             if(x.slice(0,1) == "-") {
+               return "&uarr;"
+             } else {
+               return "&darr;";
+             }
+           }).join("");
+         }
+       }
+       return '<a href="' + getLinkHref(sortText) + '">' + linkText + arrow + '</a>';
+     }
+
+     function getLinkSize(){
+       return getLinkHeading("size", "Size");
+     }
+     function getLinkName(){
+       return getLinkHeading("isFile,name", "Name");
+     }
+     function getLinkLastmod(){
+       return getLinkHeading("lastmod", "Last Modified");
+     }
+</script>
+</head>
+<body onLoad="getList();">
+  <div id="bucket_list">
+    loading...
+  </div>
+  <BR>
+    <SMALL>
+      <PRE>
+        Amazon S3 Bucket list v 1.1
+      </PRE>
+    </SMALL>
+  </body>
+</html>
